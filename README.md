@@ -1,2 +1,2 @@
 # N64-Video-Player
-N64 Video Player For Everdrive SD Carts 
+N64 Video Player For Everdrives
