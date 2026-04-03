@@ -1,5 +1,4 @@
 # N64-Video-Player
 N64 Video Player For Everdrives
 
-
-Working on fixing convertion script 
+Download all files and run GUI python script
