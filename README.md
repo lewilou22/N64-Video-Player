@@ -7,3 +7,6 @@ USE A WIRED CONTROLLER
 Put all files on your Everdrives SD card
 
 PLAY MOVIES ON N64 !  
+
+
+https://www.youtube.com/watch?v=ddS_CBplqi0
