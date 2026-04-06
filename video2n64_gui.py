@@ -15,23 +15,91 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from n64fmv_lib import ConversionError, ConvertOptions, convert_many
+from n64fmv_lib import (
+    ConversionError,
+    ConvertOptions,
+    convert_to_menu_rom_bundle,
+    convert_to_single_rom_fit,
+    find_audioconv64,
+)
 
 # (label, scale, bitrate, fps, unused) — None = custom only
 PRESET_ENTRIES: list[tuple[str, tuple[str, str, int, str] | None]] = [
+    ("Ultra smooth long episode — 224x128 @ 320K", ("224:128", "320K", 24, "")),
+    ("Ultra smooth long episode 4:3 — 224x160 @ 320K", ("224:160", "320K", 24, "")),
+    ("Long episode (speed first) — 288x160 @ 420K", ("288:160", "420K", 24, "")),
+    ("Long episode 4:3 (speed first) — 288x208 @ 420K", ("288:208", "420K", 24, "")),
     (
         "Widescreen — 320 wide, auto height (libdragon default)",
-        ("320:-16", "800K", 20, ""),
+        ("320:-16", "800K", 24, ""),
     ),
-    ("Widescreen faster — 288×160, higher bitrate", ("288:160", "1000K", 20, "")),
-    ("4:3 — 320×240", ("320:240", "800K", 20, "")),
-    ("4:3 faster — 288×208", ("288:208", "1000K", 20, "")),
+    ("Widescreen faster — 288×160, higher bitrate", ("288:160", "1000K", 24, "")),
+    ("4:3 — 320×240", ("320:240", "800K", 24, "")),
+    ("4:3 faster — 288×208", ("288:208", "1000K", 24, "")),
     ("Quality — 320 wide, 1200K, 24 fps (heavier on N64)", ("320:-16", "1200K", 24, "")),
-    ("Low bandwidth — 600K, 20 fps", ("320:-16", "600K", 20, "")),
+    ("Low bandwidth — 600K, 24 fps", ("320:-16", "600K", 24, "")),
     ("Custom (edit fields below)", None),
 ]
 PRESET_NAMES = [x[0] for x in PRESET_ENTRIES]
 PRESET_MAP = dict(PRESET_ENTRIES)
+MODE_V2 = "Single embedded ROM (EverDrive V2)"
+MODE_X7 = "Video player menu + SD files (EverDrive X7/others)"
+OUTPUT_MODES = (MODE_X7, MODE_V2)
+
+
+def _prefix_from_audioconv_path(ac: Path) -> Path:
+    # Typical install: <prefix>/bin/audioconv64
+    if ac.parent.name == "bin":
+        return ac.parent.parent
+    # Local built tools: <prefix>/tools/audioconv64/audioconv64
+    if ac.parent.name == "audioconv64" and ac.parent.parent.name == "tools":
+        return ac.parent.parent.parent
+    return ac.parent
+
+
+def _normalize_n64_inst_input(raw: str) -> Path | None:
+    s = (raw or "").strip()
+    if not s:
+        return None
+    p = Path(s).expanduser()
+    # If user selected the executable directly.
+    if p.is_file() and p.name == "audioconv64":
+        return _prefix_from_audioconv_path(p)
+    # If user selected .../bin, promote to install prefix.
+    if p.is_dir() and p.name == "bin" and (p / "audioconv64").is_file():
+        return p.parent
+    # If user selected .../tools/audioconv64 folder, promote to project prefix.
+    if p.is_dir() and p.name == "audioconv64" and p.parent.name == "tools" and (p / "audioconv64").is_file():
+        return p.parent.parent
+    return p
+
+
+def _guess_n64_inst() -> str:
+    env = os.environ.get("N64_INST", "").strip()
+    if env:
+        n64p = _normalize_n64_inst_input(env)
+        if n64p and (n64p / "bin" / "audioconv64").is_file():
+            return str(n64p)
+
+    ac = find_audioconv64(None)
+    if ac:
+        return str(_prefix_from_audioconv_path(ac))
+
+    script = Path(__file__).resolve()
+    repo_root = script.parent.parent
+    candidates = [
+        repo_root.parent / "libdragon-n64-inst",
+        repo_root.parent / "libdragon-preview",
+        Path.home() / "Projects" / "libdragon-n64-inst",
+        Path.home() / "Projects" / "libdragon-preview",
+        Path.home() / "libdragon-n64-inst",
+        Path.home() / "libdragon-preview",
+        Path("/opt/libdragon"),
+    ]
+    for c in candidates:
+        if (c / "bin" / "audioconv64").is_file():
+            return str(c)
+    return ""
 
 
 class App(tk.Tk):
@@ -74,11 +142,27 @@ class App(tk.Tk):
         )
         ttk.Button(f_io, text="Browse…", command=self._browse_out).grid(row=0, column=2)
         ttk.Label(f_io, text="N64_INST (for wav64)").grid(row=1, column=0, sticky=tk.W, pady=(4, 0))
-        self._n64 = tk.StringVar(value=os.environ.get("N64_INST", "").strip())
+        guessed_n64 = _guess_n64_inst()
+        self._n64 = tk.StringVar(value=guessed_n64)
         ttk.Entry(f_io, textvariable=self._n64, width=50).grid(
             row=1, column=1, sticky=tk.EW, padx=4, pady=(4, 0)
         )
         ttk.Button(f_io, text="Browse…", command=self._browse_n64).grid(row=1, column=2, pady=(4, 0))
+        ttk.Label(f_io, text="Repo root (for ROM/menu build)").grid(row=2, column=0, sticky=tk.W, pady=(4, 0))
+        self._repo = tk.StringVar(value=str(Path(__file__).resolve().parent.parent))
+        ttk.Entry(f_io, textvariable=self._repo, width=50).grid(
+            row=2, column=1, sticky=tk.EW, padx=4, pady=(4, 0)
+        )
+        ttk.Button(f_io, text="Browse…", command=self._browse_repo).grid(row=2, column=2, pady=(4, 0))
+        ttk.Label(f_io, text="Output mode").grid(row=3, column=0, sticky=tk.W, pady=(4, 0))
+        self._output_mode = tk.StringVar(value=MODE_X7)
+        ttk.Combobox(
+            f_io,
+            textvariable=self._output_mode,
+            values=OUTPUT_MODES,
+            state="readonly",
+            width=48,
+        ).grid(row=3, column=1, sticky=tk.W, padx=4, pady=(4, 0))
         f_io.columnconfigure(1, weight=1)
 
         # --- Encoding ---
@@ -109,7 +193,7 @@ class App(tk.Tk):
         )
 
         ttk.Label(f_enc, text="FPS").grid(row=2, column=0, sticky=tk.W, pady=(6, 0))
-        self._fps = tk.StringVar(value="20")
+        self._fps = tk.StringVar(value="24")
         ttk.Spinbox(f_enc, from_=10, to=30, textvariable=self._fps, width=8).grid(
             row=2, column=1, sticky=tk.W, padx=4, pady=(6, 0)
         )
@@ -170,6 +254,18 @@ class App(tk.Tk):
         ttk.Checkbutton(f_chk, text="Keep .wav after wav64", variable=self._keepwav).pack(
             side=tk.LEFT, padx=(12, 0)
         )
+        self._auto_tune = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            f_chk,
+            text="Auto-tune long videos (fps/scale/bitrate/audio)",
+            variable=self._auto_tune,
+        ).pack(side=tk.LEFT, padx=(12, 0))
+        self._force_cbr = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            f_chk,
+            text="Steady MPEG rate control (reduce lag spikes)",
+            variable=self._force_cbr,
+        ).pack(side=tk.LEFT, padx=(12, 0))
 
         f_enc.columnconfigure(1, weight=1)
 
@@ -229,7 +325,13 @@ class App(tk.Tk):
     def _browse_n64(self) -> None:
         d = filedialog.askdirectory(title="N64_INST (folder containing bin/audioconv64)")
         if d:
-            self._n64.set(d)
+            n64p = _normalize_n64_inst_input(d)
+            self._n64.set(str(n64p) if n64p else d)
+
+    def _browse_repo(self) -> None:
+        d = filedialog.askdirectory(title="Repo root (contains Makefile and filesystem)")
+        if d:
+            self._repo.set(d)
 
     def _log_line(self, s: str) -> None:
         self._log.config(state=tk.NORMAL)
@@ -277,12 +379,47 @@ class App(tk.Tk):
             messagebox.showwarning("No files", "Add at least one video file.")
             return
         out = Path(self._out.get().strip() or ".").expanduser()
+        repo_root = Path(self._repo.get().strip() or ".").expanduser()
         n64s = self._n64.get().strip()
-        n64_inst = Path(n64s).expanduser() if n64s else None
+        n64_norm = _normalize_n64_inst_input(n64s)
+        n64_inst = n64_norm if n64_norm else None
+        if n64_inst:
+            self._n64.set(str(n64_inst))
+            ac = find_audioconv64(n64_inst)
+            if ac:
+                self._log_line(f"Using audioconv64: {ac}")
+            else:
+                messagebox.showwarning(
+                    "N64 toolchain path",
+                    f"audioconv64 not found under:\n{n64_inst}\n\n"
+                    "Conversion can still run, but wav64 output will be skipped until this path is fixed.",
+                )
         stem = self._stem.get().strip() or None
         if stem and len(paths) > 1:
             messagebox.showwarning("Output name", "Custom output name works with only one file.")
             return
+        mode = self._output_mode.get().strip()
+        is_v2_mode = mode == MODE_V2
+        if len(paths) != 1:
+            messagebox.showwarning("Input file", "Use exactly one input file in these build modes.")
+            return
+        if is_v2_mode:
+            if not (repo_root / "Makefile").is_file() or not (repo_root / "filesystem").is_dir():
+                messagebox.showerror(
+                    "EverDrive V2 mode",
+                    "Repo root must contain Makefile and filesystem/.",
+                )
+                return
+        else:
+            if not (repo_root / "Makefile").is_file() or not (repo_root / "filesystem").is_dir():
+                messagebox.showerror(
+                    "X7/others mode",
+                    "Repo root must contain Makefile, Makefile.sd and filesystem/.",
+                )
+                return
+            if not (repo_root / "Makefile.sd").is_file():
+                messagebox.showerror("X7/others mode", "Repo root missing Makefile.sd.")
+                return
         try:
             fps = int(self._fps.get().strip())
             if not (1 <= fps <= 60):
@@ -313,6 +450,11 @@ class App(tk.Tk):
             no_audio=self._noaud.get(),
             keep_wav=self._keepwav.get(),
             skip_wav64=self._skip64.get(),
+            auto_tune_long_videos=self._auto_tune.get(),
+            force_cbr=self._force_cbr.get(),
+            chunk_seconds=None,
+            chunk_auto=False,
+            fit_sd_preload=False,
         )
 
         self._log.config(state=tk.NORMAL)
@@ -327,18 +469,38 @@ class App(tk.Tk):
                 self._queue.put(("log", msg))
 
             try:
-                convert_many(
-                    paths,
-                    out,
-                    n64_inst=n64_inst,
-                    stem_override=stem,
-                    opts=opts,
-                    log=qlog,
-                    cancel=self._cancel.is_set,
-                )
+                if is_v2_mode:
+                    # EverDrive V2 route: single embedded ROM capped at 64MB.
+                    convert_to_single_rom_fit(
+                        paths[0],
+                        out,
+                        repo_root=repo_root,
+                        n64_inst=n64_inst,
+                        stem_override=stem,
+                        opts=opts,
+                        max_rom_mb=64.0,
+                        rom_filename="n64video.z64",
+                        log=qlog,
+                        cancel=self._cancel.is_set,
+                    )
+                else:
+                    # X7/others route: SD video-player menu ROM + one video/audio pair.
+                    convert_to_menu_rom_bundle(
+                        paths[0],
+                        out,
+                        repo_root=repo_root,
+                        n64_inst=n64_inst,
+                        stem_override=stem,
+                        opts=opts,
+                        build_engine_rom=True,
+                        log=qlog,
+                        cancel=self._cancel.is_set,
+                    )
                 self._queue.put(("done", None))
             except ConversionError as e:
                 self._queue.put(("err", str(e)))
+            except Exception as e:  # Keep GUI thread from crashing silently.
+                self._queue.put(("err", f"Unexpected error: {e}"))
 
         self._worker = threading.Thread(target=run, daemon=True)
         self._worker.start()
