@@ -18,6 +18,7 @@ from tkinter import filedialog, messagebox, ttk
 from n64fmv_lib import (
     ConversionError,
     ConvertOptions,
+    convert_many,
     convert_to_menu_rom_bundle,
     convert_to_single_rom_fit,
     find_audioconv64,
@@ -43,8 +44,25 @@ PRESET_ENTRIES: list[tuple[str, tuple[str, str, int, str] | None]] = [
 PRESET_NAMES = [x[0] for x in PRESET_ENTRIES]
 PRESET_MAP = dict(PRESET_ENTRIES)
 MODE_V2 = "Single embedded ROM (EverDrive V2)"
+
+
+def _repo_layout_issues(repo_root: Path, *, need_makefile_sd: bool) -> list[str]:
+    """Paths the converter expects under the n64-video-rom clone (Windows-safe)."""
+    missing: list[str] = []
+    mk = repo_root / "Makefile"
+    if not mk.is_file():
+        missing.append(f"Makefile  (expected file: {mk})")
+    fs = repo_root / "filesystem"
+    if not fs.is_dir():
+        missing.append(f"filesystem\\  (expected folder next to Makefile: {fs})")
+    if need_makefile_sd:
+        msd = repo_root / "Makefile.sd"
+        if not msd.is_file():
+            missing.append(f"Makefile.sd  (expected file: {msd})")
+    return missing
+MODE_ENCODE = "Encode only (.m1v / .wav64 — no ROM build, no Makefile)"
 MODE_X7 = "Video player menu + SD files (EverDrive X7/others)"
-OUTPUT_MODES = (MODE_X7, MODE_V2)
+OUTPUT_MODES = (MODE_ENCODE, MODE_X7, MODE_V2)
 
 
 def _prefix_from_audioconv_path(ac: Path) -> Path:
@@ -133,6 +151,9 @@ class App(tk.Tk):
         ttk.Button(bf, text="Clear", command=self._clear_list).pack(fill=tk.X)
 
         # --- Output & toolchain ---
+        self._repo_label_var = tk.StringVar(
+            value="Repo root (for ROM build: Makefile + filesystem/)"
+        )
         f_io = ttk.Frame(root_f)
         f_io.pack(fill=tk.X, pady=(8, 0))
         ttk.Label(f_io, text="Output folder").grid(row=0, column=0, sticky=tk.W)
@@ -148,22 +169,27 @@ class App(tk.Tk):
             row=1, column=1, sticky=tk.EW, padx=4, pady=(4, 0)
         )
         ttk.Button(f_io, text="Browse…", command=self._browse_n64).grid(row=1, column=2, pady=(4, 0))
-        ttk.Label(f_io, text="Repo root (for ROM/menu build)").grid(row=2, column=0, sticky=tk.W, pady=(4, 0))
-        self._repo = tk.StringVar(value=str(Path(__file__).resolve().parent.parent))
-        ttk.Entry(f_io, textvariable=self._repo, width=50).grid(
-            row=2, column=1, sticky=tk.EW, padx=4, pady=(4, 0)
+        ttk.Label(f_io, textvariable=self._repo_label_var).grid(
+            row=2, column=0, sticky=tk.W, pady=(4, 0)
         )
-        ttk.Button(f_io, text="Browse…", command=self._browse_repo).grid(row=2, column=2, pady=(4, 0))
+        self._repo = tk.StringVar(value=str(Path(__file__).resolve().parent.parent))
+        self._repo_entry = ttk.Entry(f_io, textvariable=self._repo, width=50)
+        self._repo_entry.grid(row=2, column=1, sticky=tk.EW, padx=4, pady=(4, 0))
+        self._repo_btn = ttk.Button(f_io, text="Browse…", command=self._browse_repo)
+        self._repo_btn.grid(row=2, column=2, pady=(4, 0))
         ttk.Label(f_io, text="Output mode").grid(row=3, column=0, sticky=tk.W, pady=(4, 0))
-        self._output_mode = tk.StringVar(value=MODE_X7)
-        ttk.Combobox(
+        self._output_mode = tk.StringVar(value=MODE_ENCODE)
+        self._mode_cb = ttk.Combobox(
             f_io,
             textvariable=self._output_mode,
             values=OUTPUT_MODES,
             state="readonly",
             width=48,
-        ).grid(row=3, column=1, sticky=tk.W, padx=4, pady=(4, 0))
+        )
+        self._mode_cb.grid(row=3, column=1, sticky=tk.W, padx=4, pady=(4, 0))
+        self._output_mode.trace_add("write", lambda *_a: self._sync_output_mode_ui())
         f_io.columnconfigure(1, weight=1)
+        self._sync_output_mode_ui()
 
         # --- Encoding ---
         f_enc = ttk.LabelFrame(root_f, text="Playback / encoding (see libdragon MPEG1 wiki)", padding=6)
@@ -329,9 +355,22 @@ class App(tk.Tk):
             self._n64.set(str(n64p) if n64p else d)
 
     def _browse_repo(self) -> None:
-        d = filedialog.askdirectory(title="Repo root (contains Makefile and filesystem)")
+        d = filedialog.askdirectory(
+            title="n64-video-rom folder (must contain Makefile, filesystem/, and for menu mode Makefile.sd)"
+        )
         if d:
             self._repo.set(d)
+
+    def _sync_output_mode_ui(self) -> None:
+        enc = self._output_mode.get() == MODE_ENCODE
+        if enc:
+            self._repo_label_var.set("Repo root (not used — encode-only writes to Output folder)")
+            self._repo_entry.configure(state="disabled")
+            self._repo_btn.configure(state="disabled")
+        else:
+            self._repo_label_var.set("Repo root (for ROM build: Makefile + filesystem/)")
+            self._repo_entry.configure(state="normal")
+            self._repo_btn.configure(state="normal")
 
     def _log_line(self, s: str) -> None:
         self._log.config(state=tk.NORMAL)
@@ -399,27 +438,36 @@ class App(tk.Tk):
             messagebox.showwarning("Output name", "Custom output name works with only one file.")
             return
         mode = self._output_mode.get().strip()
+        is_encode = mode == MODE_ENCODE
         is_v2_mode = mode == MODE_V2
-        if len(paths) != 1:
-            messagebox.showwarning("Input file", "Use exactly one input file in these build modes.")
+        if not is_encode and len(paths) != 1:
+            messagebox.showwarning("Input file", "ROM build modes need exactly one input file.")
             return
-        if is_v2_mode:
-            if not (repo_root / "Makefile").is_file() or not (repo_root / "filesystem").is_dir():
-                messagebox.showerror(
-                    "EverDrive V2 mode",
-                    "Repo root must contain Makefile and filesystem/.",
-                )
-                return
-        else:
-            if not (repo_root / "Makefile").is_file() or not (repo_root / "filesystem").is_dir():
-                messagebox.showerror(
-                    "X7/others mode",
-                    "Repo root must contain Makefile, Makefile.sd and filesystem/.",
-                )
-                return
-            if not (repo_root / "Makefile.sd").is_file():
-                messagebox.showerror("X7/others mode", "Repo root missing Makefile.sd.")
-                return
+        if not is_encode:
+            layout_v2 = _repo_layout_issues(repo_root, need_makefile_sd=False)
+            layout_x7 = _repo_layout_issues(repo_root, need_makefile_sd=True)
+            if is_v2_mode:
+                if layout_v2:
+                    messagebox.showerror(
+                        "EverDrive V2 mode — wrong or incomplete repo folder",
+                        "Browse to your full n64-video-rom project root (same folder as `scripts/`).\n\n"
+                        "Missing:\n• "
+                        + "\n• ".join(layout_v2)
+                        + "\n\nCopying only Makefile is not enough — you need the whole repo "
+                        "(including the `filesystem` folder).",
+                    )
+                    return
+            else:
+                if layout_x7:
+                    messagebox.showerror(
+                        "X7/others mode — wrong or incomplete repo folder",
+                        "Browse to your full n64-video-rom project root.\n\n"
+                        "Missing:\n• "
+                        + "\n• ".join(layout_x7)
+                        + "\n\nIf you use a one-off folder, add Makefile, Makefile.sd, and a "
+                        "`filesystem` directory (see the GitHub repo layout).",
+                    )
+                    return
         try:
             fps = int(self._fps.get().strip())
             if not (1 <= fps <= 60):
@@ -469,7 +517,17 @@ class App(tk.Tk):
                 self._queue.put(("log", msg))
 
             try:
-                if is_v2_mode:
+                if is_encode:
+                    convert_many(
+                        paths,
+                        out,
+                        n64_inst=n64_inst,
+                        stem_override=stem,
+                        opts=opts,
+                        log=qlog,
+                        cancel=self._cancel.is_set,
+                    )
+                elif is_v2_mode:
                     # EverDrive V2 route: single embedded ROM capped at 64MB.
                     convert_to_single_rom_fit(
                         paths[0],
