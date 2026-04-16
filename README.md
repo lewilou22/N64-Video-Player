@@ -5,6 +5,10 @@ Use the Provided SDVideo.z64 ROM to play videos from your N64 flash cart SD card
 
 Download all files and run GUI python scripts of choice 
 
+Add FFmpeg to your system path.
+
+DOWNLOAD HERE https://www.gyan.dev/ffmpeg/builds/ffmpeg-git-essentials.7z
+
 The GUIs can be used with out a libdragon install for video and audio conversion
 
 OPTIONAL: If building a packed ROM read the Libdragon instructions below
