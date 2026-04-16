@@ -3,7 +3,7 @@ N64 Video Player For Flash Carts
 
 Use the Provided SDVideo.z64 ROM to play videos from your N64 flash cart SD card (Need to convert to N64 format see below for conversion instructions)
 
-Download all files and run GUI python script of choice 
+Download all files and run GUI python scripts of choice 
 
 The GUIs can be used with out a libdragon install for video and audio conversion
 
