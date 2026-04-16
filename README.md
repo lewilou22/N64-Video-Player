@@ -10,6 +10,7 @@ OPTIONAL: If building a packed ROM read the Libdragon instructions below
 https://www.youtube.com/watch?v=ddS_CBplqi0
 
 Non libdragon Setup:
+
 Add FFmpeg to your system path.
 
 DOWNLOAD HERE https://www.gyan.dev/ffmpeg/builds/ffmpeg-git-essentials.7z
