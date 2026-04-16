@@ -1,0 +1,27 @@
+# SD FMV player ROM — built separately so BUILD_DIR is isolated from n64video.
+BUILD_DIR = build-sd
+include $(N64_INST)/include/n64.mk
+
+N64_ROM_TITLE = SD FMV Player
+N64_ROM_CATEGORY = N
+N64_ROM_SAVETYPE = none
+
+src = sd_player.c
+
+all: sdvideo.z64
+
+sdvideo.z64: N64_ROM_TITLE="SD FMV Player"
+sdvideo.z64: $(BUILD_DIR)/sdvideo.dfs
+
+$(BUILD_DIR)/sdvideo.elf: $(src:%.c=$(BUILD_DIR)/%.o)
+
+$(BUILD_DIR)/sdvideo.dfs: filesystem-sd/sd_help.txt
+	@echo "    [DFS] $@"
+	$(N64_MKDFS) "$@" filesystem-sd >/dev/null
+
+clean:
+	rm -rf $(BUILD_DIR) sdvideo.z64
+
+-include $(wildcard $(BUILD_DIR)/*.d)
+
+.PHONY: all clean
