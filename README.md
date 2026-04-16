@@ -57,3 +57,5 @@ Point N64_INST to the new libdragon-preview folder (one folder before N64-Libdra
 Repo ROOT is N64-Libdragon-WSL2 folder
 
 Make a Movie ROM . Play on N64. Enjoy it
+
+Credit to Libdragon for the library https://github.com/DragonMinded/libdragon
