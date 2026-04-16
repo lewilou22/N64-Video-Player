@@ -3,22 +3,28 @@ N64 Video Player For Flash Carts
 
 Use the Provided SDVideo.z64 ROM to play videos from your N64 flash cart SD card (Need to convert to N64 format see below for conversion instructions)
 
-Download all files and run GUI python scripts of choice 
+The GUIs can be used with out a libdragon install for video and audio conversion OR with libdragon for ROM packing 
 
+OPTIONAL: If building a packed ROM read the Libdragon instructions below
+
+https://www.youtube.com/watch?v=ddS_CBplqi0
+
+Non libdragon Setup:
 Add FFmpeg to your system path.
 
 DOWNLOAD HERE https://www.gyan.dev/ffmpeg/builds/ffmpeg-git-essentials.7z
 
-The GUIs can be used with out a libdragon install for video and audio conversion
+Unzip audioconv64 for the Audio GUI script https://github.com/lewilou22/N64-Video-Player/releases/download/V1.02/audioconv64.7z
 
-OPTIONAL: If building a packed ROM read the Libdragon instructions below
+Download all files and run GUI python scripts Video2n64 then audio2n64
+
+For .wav64, use audio2n64  GUI with your converted .wav file after video conversion 
+
+You now have 2 files, .M1V and .wav64
 
 Put all files on your Everdrives SD card
 
-PLAY MOVIES ON N64 !  
-
-
-https://www.youtube.com/watch?v=ddS_CBplqi0
+PLAY MOVIES ON N64 ! 
 
 
 
