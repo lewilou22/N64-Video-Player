@@ -30,6 +30,8 @@ https://learn.microsoft.com/en-us/windows/wsl/install
 Unzip the project folder on your WSL2 enviroment
 
 cd N64-Libdragon-WSL2/scripts
+
+
 bash wsl_bootstrap_libdragon.sh
 
 close the WSL2 terminal
