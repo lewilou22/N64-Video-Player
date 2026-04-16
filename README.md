@@ -7,7 +7,7 @@ Download all files and run GUI python script of choice
 
 The GUIs can be used with out a libdragon install for video and audio conversion
 
-If building a packed ROM read the Libdragon instructions below
+OPTIONAL: If building a packed ROM read the Libdragon instructions below
 
 Put all files on your Everdrives SD card
 
