@@ -7,7 +7,7 @@ The GUIs can be used with out a libdragon install for video and audio conversion
 
 OPTIONAL: If building a packed ROM read the Libdragon instructions below
 
-https://www.youtube.com/watch?v=ddS_CBplqi0
+https://www.youtube.com/watch?v=vdiSMqFX704
 
 Non libdragon Setup:
 
